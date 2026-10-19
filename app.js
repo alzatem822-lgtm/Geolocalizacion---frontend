@@ -326,8 +326,55 @@ function recuperarLocal() {
     mostrarInfo('Se recuperó tu polígono guardado.');
 }
 
-/* ---------- Reto 6 (intermedio): importar un .geojson y dibujarlo ---------- */
-let capaImportada = null;
+/* ---------- Reto 6 (intermedio): importar un .geojson y cargarlo como polígono editable ---------- */
+function extraerPoligono(datos) {
+    if (datos.type === 'FeatureCollection') {
+        return datos.features.find((f) => f.geometry && f.geometry.type === 'Polygon') || null;
+    }
+    if (datos.type === 'Feature') {
+        return datos.geometry && datos.geometry.type === 'Polygon' ? datos : null;
+    }
+    return datos.type === 'Polygon' ? { type: 'Feature', geometry: datos, properties: {} } : null;
+}
+
+function importarGeoJSON(datos, nombreArchivo) {
+    const feature = extraerPoligono(datos);
+
+    if (!feature) {
+        mostrarInfo('El archivo no contiene un polígono.');
+        return;
+    }
+
+    detenerGeocerca();
+    limpiar(); // reinicia puntos, vértices, línea guía y polígono
+
+    // GeoJSON es [lng, lat]; Leaflet es [lat, lng]
+    let anillo = feature.geometry.coordinates[0];
+
+    // GeoJSON repite el primer punto al final: se quita para no duplicar el vértice
+    const primero = anillo[0];
+    const ultimo = anillo[anillo.length - 1];
+    if (primero[0] === ultimo[0] && primero[1] === ultimo[1]) anillo = anillo.slice(0, -1);
+
+    // Reutiliza el click del Paso 4 (crea el vértice y llena "puntos")
+    anillo.forEach(([lng, lat]) => {
+        mapa.fire('click', { latlng: L.latLng(lat, lng) });
+    });
+
+    // Recupera nombre y color si el archivo los trae
+    const props = feature.properties || {};
+    inputNombre.value = props.nombre || '';
+    if (props.color) {
+        colorElegido = props.color;
+        inputColor.value = props.color;
+    }
+
+    cerrarPoligono();
+    poligono.setStyle({ color: colorElegido });
+
+    alCambiar(); // tabla, aviso de cruces y localStorage
+    mostrarInfo(`Archivo "${nombreArchivo}" importado.`);
+}
 
 inputArchivo.addEventListener('change', () => {
     const archivo = inputArchivo.files[0];
@@ -338,14 +385,7 @@ inputArchivo.addEventListener('change', () => {
 
     lector.onload = () => {
         try {
-            const datos = JSON.parse(lector.result);
-
-            if (capaImportada) mapa.removeLayer(capaImportada);
-
-            capaImportada = L.geoJSON(datos).addTo(mapa);
-            mapa.fitBounds(capaImportada.getBounds());
-
-            mostrarInfo(`Archivo "${archivo.name}" importado.`);
+            importarGeoJSON(JSON.parse(lector.result), archivo.name);
         } catch (e) {
             mostrarInfo('El archivo no es un GeoJSON válido.');
         }
